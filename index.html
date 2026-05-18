@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLAC-ify</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- We only need the database helper here now -->
+    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>FLAC-ify</h1>
+            <button id="btn-open">Select Music Folder</button>
+        </header>
+
+        <main>
+            <div class="player-section">
+                <!-- Visualizer Canvas Screen -->
+                <canvas id="visualizer" width="600" height="150"></canvas>
+
+                <!-- Album Art Container -->
+                <div class="art-container">
+                    <img id="album-art" src="" alt="Album Art" style="display: none;">
+                    <div id="art-placeholder">🎵</div>
+                </div>
+                
+                <h3 id="now-playing">Now Playing: ---</h3>
+                <p id="now-artist">Artist: ---</p>
+                
+                <audio id="audio-player" controls></audio>
+
+                <!-- Lyrics Container -->
+                <div id="lyrics-container" class="lyrics-container">
+                    <p class="lyric-line active">Lyrics will appear here...</p>
+                </div>
+
+                <!-- MOVED & UPGRADED: Collapsible Audio Control Toolkit -->
+                <div id="control-rack" class="control-rack collapsed">
+                    <div id="rack-trigger" class="rack-header">
+                        <div class="header-title-group">
+                            <span id="rack-arrow" class="rack-arrow">▶</span>
+                            <h3>Audio Toolkit</h3>
+                        </div>
+                        <button id="btn-reset" class="btn-xs">Reset Deck</button>
+                    </div>
+
+                    <!-- Hidden container block managed by JS animation transitions -->
+                    <div class="rack-body">
+                        <div class="rack-row">
+                            <label class="switch-label">
+                                <!-- NEW: Custom Pill Slider Toggle Switch Wrapper -->
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="compressor-toggle">
+                                    <span class="toggle-slider"></span>
+                                </div>
+                                <span class="toggle-text">Auto-Volume Leveler</span>
+                            </label>
+                        </div>
+
+                        <div class="eq-container">
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <span class="slider-label">Bass</span>
+                                    <span id="val-bass" class="slider-value">0dB</span>
+                                </div>
+                                <input type="range" id="eq-bass" min="-12" max="12" value="0" step="1">
+                            </div>
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <span class="slider-label">Mid</span>
+                                    <span id="val-mid" class="slider-value">0dB</span>
+                                </div>
+                                <input type="range" id="eq-mid" min="-12" max="12" value="0" step="1">
+                            </div>
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <span class="slider-label">Treble</span>
+                                    <span id="val-treble" class="slider-value">0dB</span>
+                                </div>
+                                <input type="range" id="eq-treble" min="-12" max="12" value="0" step="1">
+                            </div>
+                        </div>
+
+                        <div class="balance-container">
+                            <div class="slider-header" style="width: 60%; justify-content: center; gap: 15px;">
+                                <span class="slider-label">Stereo Balance</span>
+                                <span id="val-balance" class="slider-value">Center</span>
+                            </div>
+                            <div class="balance-row">
+                                <span>L</span>
+                                <input type="range" id="audio-balance" min="-1" max="1" value="0" step="0.1">
+                                <span>R</span>
+                            </div>
+                        </div>
+                    </div> <!-- End rack-body -->
+                </div> <!-- End control-rack -->
+            </div>
+            
+            <div class="playlist-section">
+                <h2>Library <span id="loading-text" style="font-size: 0.8rem; color: #1db954;"></span></h2>
+                <ul id="track-list" class="track-list">
+                    <li class="empty-state">No folder selected or saved.</li>
+                </ul>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
