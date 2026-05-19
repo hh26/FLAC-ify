@@ -48,6 +48,7 @@ const btnNext = document.getElementById('btn-next');
 const timelineSlider = document.getElementById('timeline-slider');
 const timeCurrent = document.getElementById('time-current');
 const timeDuration = document.getElementById('time-duration');
+const formatScopeToggle = document.getElementById('format-scope-toggle');
 
 // Data Management State Variables
 let fileMap = new Map();
@@ -319,13 +320,31 @@ function makeSafeId(str) {
     return 'track-' + encodeURIComponent(str).replace(/%/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
 }
 
-// 4. Ultra-Stable Directory Tree Engine: Zero background disk-reading
+// 4. Upgraded Format-Aware Directory Tree Engine: Dynamically maps selectable file arrays
 async function loadLibrary(dirHandle) {
     trackList.innerHTML = '';
     fileMap.clear();
     loadingText.textContent = "(Building library tree...)";
 
-    // Single-pass structural scanner that only reads names, finishing instantly
+    // Detect user preferences state configuration selection paths right now
+    const allowAllFormats = formatScopeToggle.checked;
+
+    // Helper evaluation utility to validate track names against configuration constraints
+    function isValidAudioFile(filename) {
+        const lowerName = filename.toLowerCase();
+        if (allowAllFormats) {
+            // Expanded compatibility tracking matrix
+            return lowerName.endsWith('.flac') || 
+                   lowerName.endsWith('.mp3')  || 
+                   lowerName.endsWith('.wav')  || 
+                   lowerName.endsWith('.m4a')  || 
+                   lowerName.endsWith('.ogg');
+        }
+        // Strict baseline fallback execution criteria
+        return lowerName.endsWith('.flac');
+    }
+
+    // Single-pass structural scanner that filters files instantly by format types configuration
     async function buildDOM(folderHandle, parentDOMElement) {
         for await (const entry of folderHandle.values()) {
             if (entry.kind === 'directory') {
@@ -348,74 +367,60 @@ async function loadLibrary(dirHandle) {
                 folderDiv.appendChild(contentDiv);
                 parentDOMElement.appendChild(folderDiv);
 
-                // Instantly dive into subfolder names
                 await buildDOM(entry, contentDiv);
                 
-                // Clean up empty folders
                 if (contentDiv.children.length === 0) {
                     folderDiv.remove();
                 }
-            } // ... inside Pass 1 of loadLibrary, replace the 'file' block entirely with this:
-            else if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.flac')) {
+            } 
+            // 🚀 UPGRADED: Dynamic condition evaluation check
+            else if (entry.kind === 'file' && isValidAudioFile(entry.name)) {
                 
-                // 🚀 CRITICAL FIX: Generate a truly unique absolute key using the file's name and size 
-                // This ensures separate folders with identical file names never collide or return empty pointers.
                 const fileObj = await entry.getFile();
                 const fullUniqueKey = `${entry.name}-${fileObj.size}`;
+                
+                // Clean extension suffixes labels presentation smoothly
+                const cleanTitle = entry.name.replace(/\.(flac|mp3|wav|m4a|ogg)$/i, '');
+                const fileExt = entry.name.split('.').pop().toUpperCase();
 
-                // Store the minimum tracking reference under our new bulletproof key
                 fileMap.set(fullUniqueKey, { 
                     handle: entry, 
-                    title: entry.name.replace(/\.flac$/i, ''), 
+                    title: cleanTitle, 
                     artist: "Local Audio" 
                 });
 
                 const li = document.createElement('li');
                 li.className = 'track-item';
-                li.id = makeSafeId(fullUniqueKey); // Generate safe DOM ID using the unique path
+                li.id = makeSafeId(fullUniqueKey);
                 li.innerHTML = `
                     <div class="track-meta" style="max-width: 75%;">
-                        <span class="track-title">${entry.name.replace(/\.flac$/i, '')}</span>
-                        <span class="track-artist" style="color: #4b5563;">FLAC Audio</span>
+                        <span class="track-title">${cleanTitle}</span>
+                        <span class="track-artist" style="color: #4b5563;">${fileExt} Audio</span>
                     </div>
                     <button class="btn-add-queue" data-filename="${fullUniqueKey}">+ Queue</button>
                 `;
                 
-                // Replace the old click listener on the track list item rows with this:
-                li.addEventListener('click', async (e) => {
+                li.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    
-                    // Route to our queue array if the "+ Queue" button was clicked
                     if (e.target.classList.contains('btn-add-queue')) {
                         addToQueue(fullUniqueKey);
                         return;
                     }
 
-                    // 🚀 NEW: Auto-Populate Queue Feature
-                    // Find the parent element containing this folder's contents (.folder-content or .track-list)
                     const parentFolder = li.parentElement;
                     if (parentFolder) {
-                        // Grab all track items inside this exact directory branch level
                         const siblingTracks = Array.from(parentFolder.querySelectorAll(':scope > .track-item'));
                         const clickedIndex = siblingTracks.indexOf(li);
-
-                        // Clear the active queue to load the fresh album context cleanly
                         playbackQueue = [];
 
-                        // Loop through all tracks sitting below the clicked song inside this folder pass
                         for (let i = clickedIndex + 1; i < siblingTracks.length; i++) {
                             const siblingButton = siblingTracks[i].querySelector('.btn-add-queue');
                             if (siblingButton) {
-                                const siblingKey = siblingButton.getAttribute('data-filename');
-                                playbackQueue.push(siblingKey);
+                                playbackQueue.push(siblingButton.getAttribute('data-filename'));
                             }
                         }
-
-                        // Paint updated queue items in the sidebar dashboard panel
                         renderQueueUI();
                     }
-
-                    // Fire the primary track play deck immediately
                     playTrack(fullUniqueKey);
                 });
                 
@@ -424,14 +429,20 @@ async function loadLibrary(dirHandle) {
         }
     }
 
-    // Render the folder structure layout directly from disk paths
     await buildDOM(dirHandle, trackList);
 
     loadingText.textContent = "";
     if (fileMap.size === 0) {
-        trackList.innerHTML = '<li class="empty-state">No FLAC files found in this directory.</li>';
+        trackList.innerHTML = `<li class="empty-state">No matching audio files found (${allowAllFormats ? 'MP3/WAV/M4A/FLAC' : 'FLAC Only'}).</li>`;
     }
 }
+
+// 🚀 RE-INDEX ON TOGGLE INTERACTION
+formatScopeToggle.addEventListener('change', () => {
+    if (savedFolderHandle) {
+        loadLibrary(savedFolderHandle);
+    }
+});
 
 // 5. Upgraded On-Demand Track Player: Parses metadata safely at the moment of user click
 async function playTrack(filename) {

@@ -798,3 +798,14 @@ kbd {
     padding: 2px 5px;
     white-space: nowrap;
 }
+
+/* Micro Switch Alignment Modifications override rules */
+.folder-controls-group .toggle-slider:before {
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    bottom: 2px;
+}
+.folder-controls-group input:checked + .toggle-slider:before {
+    transform: translateX(18px);
+}

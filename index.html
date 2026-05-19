@@ -16,6 +16,16 @@
             <h1>FLAC-ify</h1>
             <div class="folder-controls-group" style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
                 <button id="btn-open">Select Music Folder</button>
+                
+                <!-- NEW: Format Filter Scope Switch Box -->
+                <label class="switch-label" style="margin-top: 4px; gap: 8px;" title="Toggle off to isolate FLAC files only. Toggle on to parse MP3, WAV, M4A, and OGG extensions.">
+                    <div class="toggle-switch" style="width: 36px; height: 18px;">
+                        <input type="checkbox" id="format-scope-toggle">
+                        <span class="toggle-slider" style="border-radius: 18px;"></span>
+                    </div>
+                    <span class="toggle-text" style="font-size: 0.65rem; letter-spacing: 0.08em;">All Formats (MP3/WAV/M4A)</span>
+                </label>
+
                 <a href="#" id="link-clear-folder" style="display: none; font-size: 0.75rem; color: #6b7280; text-decoration: none; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; transition: color 0.2s;" onmouseover="this.style.color='#00e5ff'" onmouseout="this.style.color='#6b7280'">Disconnect Folder</a>
             </div>
         </header>
