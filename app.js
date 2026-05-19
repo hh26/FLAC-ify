@@ -36,24 +36,40 @@ const valTreble = document.getElementById('val-treble');
 const valBalance = document.getElementById('val-balance');
 const controlRack = document.getElementById('control-rack');
 const rackTrigger = document.getElementById('rack-trigger');
+const linkClearFolder = document.getElementById('link-clear-folder');
+// Grab references to our new queue UI components
+const queueContainer = document.getElementById('queue-container');
+const queueList = document.getElementById('queue-list');
+const btnClearQueue = document.getElementById('btn-clear-queue');
+// Controller Deck DOM Hook References
+const btnPrev = document.getElementById('btn-prev');
+const btnPlayToggle = document.getElementById('btn-play-toggle');
+const btnNext = document.getElementById('btn-next');
+const timelineSlider = document.getElementById('timeline-slider');
+const timeCurrent = document.getElementById('time-current');
+const timeDuration = document.getElementById('time-duration');
 
 // Data Management State Variables
 let fileMap = new Map();
 let parsedLyrics = []; 
 let lastActiveIndex = -1; 
 let savedFolderHandle = null; // 🚀 NEW: Keeps track of the loaded folder state
+let playbackQueue = []; 
+let playbackHistory = []; 
+let currentTrackKey = null; // Remembers what unique file string is currently loaded
 
 // 1. Initialize App & Register Service Worker (PWA)
 window.addEventListener('load', async () => {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js');
     }
-    // Check cache, but DO NOT request permission yet
+    
     const savedHandle = await idbKeyval.get('music-folder');
     if (savedHandle) {
         savedFolderHandle = savedHandle;
-        btnOpen.textContent = "Unlock Saved Library"; // Update UI to prompt user click
-        trackList.innerHTML = '<li class="empty-state">Saved library detected. Click "Unlock Saved Library" above to load your music.</li>';
+        btnOpen.textContent = "Unlock Saved Library"; 
+        linkClearFolder.style.display = "inline-block"; // Show the disconnect button option
+        trackList.innerHTML = '<li class="empty-state">Saved library detected. Click "Unlock Saved Library" above to sync your device files.</li>';
     }
 });
 
@@ -72,39 +88,53 @@ btnOpen.addEventListener('click', async () => {
     try {
         let dirHandle = savedFolderHandle;
 
-        // SCENARIO A: There is no saved folder, or user wants a brand new one
+        // SCENARIO A: Fresh load, no folder has been cached yet
         if (!dirHandle) {
             dirHandle = await window.showDirectoryPicker();
             await idbKeyval.set('music-folder', dirHandle);
             savedFolderHandle = dirHandle;
+            linkClearFolder.style.display = "inline-block";
         } else {
-            // SCENARIO B: User is clicking to unlock their existing saved folder
+            // SCENARIO B: Unlocking an existing cached folder handle
             const permission = await verifyPermission(dirHandle);
             if (!permission) {
-                // If they explicitly deny the pop-up, reset the button state to start over
+                // Handle denial gracefully
                 savedFolderHandle = null;
+                linkClearFolder.style.display = "none";
                 btnOpen.textContent = "Select Music Folder";
-                trackList.innerHTML = '<li class="empty-state">Permission denied.</li>';
+                trackList.innerHTML = '<li class="empty-state">Permission denied by client browser.</li>';
                 return;
             }
         }
 
-        // Once folder is verified/selected successfully, change button to allow switching folders later
-        btnOpen.textContent = "Change Music Folder";
-        
-        // Temporarily clear the saved state cache variable if they double-click to change it later
-        btnOpen.ondblclick = async () => {
-            await idbKeyval.del('music-folder');
-            savedFolderHandle = null;
-            btnOpen.textContent = "Select Music Folder";
-            location.reload();
-        };
-
+        // Once confirmed, change main text label to active status indicator
+        btnOpen.textContent = "Library Synchronized";
         loadLibrary(dirHandle);
 
     } catch (err) {
-        console.log('Folder selection or activation cancelled.', err);
+        console.log('Folder acquisition lifecycle canceled or interrupted.', err);
     }
+});
+
+// 3. New Single-Click Clear Trigger Handler Link
+linkClearFolder.addEventListener('click', async (e) => {
+    e.preventDefault(); // Stop page from jumping to top anchor point
+    
+    // Wipe local storage indices entirely
+    await idbKeyval.del('music-folder');
+    savedFolderHandle = null;
+    
+    // Reset buttons back to initial defaults layout
+    btnOpen.textContent = "Select Music Folder";
+    linkClearFolder.style.display = "none";
+    trackList.innerHTML = '<li class="empty-state">Folder disconnected. Select a new directory to load music.</li>';
+    
+    // Refresh the player screen profile values back to blank state
+    nowPlayingText.textContent = "Now Playing: ---";
+    nowArtistText.textContent = "Artist: ---";
+    audioPlayer.src = "";
+    albumArt.style.display = "none";
+    artPlaceholder.style.display = "flex";
 });
 
 // Initialize the Master Routing Architecture Graph
@@ -284,100 +314,177 @@ async function checkSavedDirectory() {
     }
 }
 
-// Scan folder & load library
+// Helper utility to turn messy file names into pristine, browser-safe element IDs
+function makeSafeId(str) {
+    return 'track-' + encodeURIComponent(str).replace(/%/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+}
+
+// 4. Ultra-Stable Directory Tree Engine: Zero background disk-reading
 async function loadLibrary(dirHandle) {
-    const mm = await import('https://cdn.jsdelivr.net/npm/music-metadata@11.12.3/+esm');
     trackList.innerHTML = '';
     fileMap.clear();
-    loadingText.textContent = "(Loading Metadata...)";
+    loadingText.textContent = "(Building library tree...)";
 
-    let flacCount = 0;
+    // Single-pass structural scanner that only reads names, finishing instantly
+    async function buildDOM(folderHandle, parentDOMElement) {
+        for await (const entry of folderHandle.values()) {
+            if (entry.kind === 'directory') {
+                const folderDiv = document.createElement('div');
+                folderDiv.className = 'tree-folder collapsed';
 
-    for await (const entry of dirHandle.values()) {
-        if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.flac')) {
-            flacCount++;
-            const file = await entry.getFile();
-            let title = entry.name.replace(/\.flac$/i, '');
-            let artist = "Unknown Artist";
-            let pictureData = null;
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'folder-header';
+                headerDiv.innerHTML = `<span class="folder-icon">▶</span> 📁 ${entry.name}`;
 
-            try {
-                const metadata = await mm.parseBlob(file);
-                if (metadata.common.title) title = metadata.common.title;
-                if (metadata.common.artist) artist = metadata.common.artist;
-                if (metadata.common.picture && metadata.common.picture.length > 0) {
-                    pictureData = metadata.common.picture[0];
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'folder-content';
+
+                headerDiv.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    folderDiv.classList.toggle('expanded');
+                });
+
+                folderDiv.appendChild(headerDiv);
+                folderDiv.appendChild(contentDiv);
+                parentDOMElement.appendChild(folderDiv);
+
+                // Instantly dive into subfolder names
+                await buildDOM(entry, contentDiv);
+                
+                // Clean up empty folders
+                if (contentDiv.children.length === 0) {
+                    folderDiv.remove();
                 }
-            } catch (err) {
-                console.warn(`Could not read metadata for ${entry.name}`);
+            } // ... inside Pass 1 of loadLibrary, replace the 'file' block entirely with this:
+            else if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.flac')) {
+                
+                // 🚀 CRITICAL FIX: Generate a truly unique absolute key using the file's name and size 
+                // This ensures separate folders with identical file names never collide or return empty pointers.
+                const fileObj = await entry.getFile();
+                const fullUniqueKey = `${entry.name}-${fileObj.size}`;
+
+                // Store the minimum tracking reference under our new bulletproof key
+                fileMap.set(fullUniqueKey, { 
+                    handle: entry, 
+                    title: entry.name.replace(/\.flac$/i, ''), 
+                    artist: "Local Audio" 
+                });
+
+                const li = document.createElement('li');
+                li.className = 'track-item';
+                li.id = makeSafeId(fullUniqueKey); // Generate safe DOM ID using the unique path
+                li.innerHTML = `
+                    <div class="track-meta" style="max-width: 75%;">
+                        <span class="track-title">${entry.name.replace(/\.flac$/i, '')}</span>
+                        <span class="track-artist" style="color: #4b5563;">FLAC Audio</span>
+                    </div>
+                    <button class="btn-add-queue" data-filename="${fullUniqueKey}">+ Queue</button>
+                `;
+                
+                li.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    
+                    // Route to our queue array or trigger the primary play deck smoothly
+                    if (e.target.classList.contains('btn-add-queue')) {
+                        addToQueue(e.target.getAttribute('data-filename'));
+                    } else {
+                        playTrack(fullUniqueKey); // Passes the absolute unique lookup pointer
+                    }
+                });
+                
+                parentDOMElement.appendChild(li);
             }
-
-            fileMap.set(entry.name, { handle: entry, title, artist, pictureData });
-
-            const li = document.createElement('li');
-            li.className = 'track-item';
-            li.innerHTML = `
-                <div class="track-meta">
-                    <span class="track-title">${title}</span>
-                    <span class="track-artist">${artist}</span>
-                </div>
-            `;
-            li.addEventListener('click', () => playTrack(entry.name));
-            trackList.appendChild(li);
         }
     }
 
+    // Render the folder structure layout directly from disk paths
+    await buildDOM(dirHandle, trackList);
+
     loadingText.textContent = "";
-    if (flacCount === 0) {
-        trackList.innerHTML = '<li class="empty-state">No FLAC files found.</li>';
+    if (fileMap.size === 0) {
+        trackList.innerHTML = '<li class="empty-state">No FLAC files found in this directory.</li>';
     }
 }
 
-// Play track
-async function playTrack(fileName) {
-    const trackData = fileMap.get(fileName);
+// 5. Upgraded On-Demand Track Player: Parses metadata safely at the moment of user click
+async function playTrack(filename) {
+    // 🚀 QUEUE HISTORY CAPTURE: If a track is already playing, push it to history before changing
+    if (currentTrackKey && currentTrackKey !== filename) {
+        playbackHistory.push(currentTrackKey);
+    }
+    currentTrackKey = filename;
+    const trackData = fileMap.get(filename);
     if (!trackData) return;
 
     try {
+        // Initialize Web Audio graph if this is the first interaction
+        if (!audioCtx) {
+            initWebAudio();
+        }
+
+        nowPlayingText.textContent = "Loading track details...";
+        nowArtistText.textContent = "";
+        albumArt.style.display = "none";
+        artPlaceholder.style.display = "flex";
+
+        // Fetch the individual file stream right now inside the user action scope
         const file = await trackData.handle.getFile();
-        const fileURL = URL.createObjectURL(file);
         
+        // Dynamically import the metadata manager on-demand
+        const mm = await import('https://cdn.jsdelivr.net/npm/music-metadata@11.12.3/+esm');
+        
+        try {
+            const metadata = await mm.parseBlob(file);
+            
+            // Extract track configurations safely
+            if (metadata.common.title) trackData.title = metadata.common.title;
+            if (metadata.common.artist) {
+                trackData.artist = metadata.common.artist;
+            } else if (metadata.common.albumartist) {
+                trackData.artist = metadata.common.albumartist;
+            }
+
+            // Extract and build the Album Cover Art layout
+            if (metadata.common.picture && metadata.common.picture.length > 0) {
+                const pic = metadata.common.picture[0];
+                const blob = new Blob([pic.data], { type: pic.format });
+                albumArt.src = URL.createObjectURL(blob);
+                albumArt.style.display = "block";
+                artPlaceholder.style.display = "none";
+            }
+
+            // Dynamically update the specific sidebar list item text so it saves your library details
+            const elementId = makeSafeId(filename);
+            const trackLi = document.getElementById(elementId);
+            if (trackLi) {
+                trackLi.querySelector('.track-title').textContent = trackData.title;
+                trackLi.querySelector('.track-artist').textContent = trackData.artist;
+            }
+
+        } catch (metaErr) {
+            console.warn("Metadata tags could not be read for this file.", metaErr);
+        }
+
+        // Display current values on the player deck dashboard
         nowPlayingText.textContent = trackData.title;
         nowArtistText.textContent = trackData.artist;
-        
-        // Fetch lyrics
-        if (trackData.artist !== "Unknown Artist") {
+
+        // Load synced lyrics if your lyric search framework is active
+        if (typeof fetchLyrics === 'function') {
             fetchLyrics(trackData.title, trackData.artist);
-        } else {
-            setStaticLyrics("Cannot fetch lyrics for Unknown Artist.");
-        }
-        
-        // Handle Album Art
-        if (trackData.pictureData) {
-            // FIXED: Avoid String.fromCharCode.apply entirely to prevent Call Stack errors
-            const blob = new Blob([trackData.pictureData.data], { type: trackData.pictureData.format });
-            const artURL = URL.createObjectURL(blob);
-            
-            albumArt.src = artURL;
-            albumArt.style.display = 'block';
-            artPlaceholder.style.display = 'none';
-        } else {
-            albumArt.style.display = 'none';
-            artPlaceholder.style.display = 'block';
         }
 
-        initWebAudio();
-        
-        // Web Browsers frequently place Context inside a "suspended" mode state to preserve system battery. 
-        // Wake it back up explicitly alongside a user track execution instruction.
-        if (audioCtx && audioCtx.state === 'suspended') {
-            await audioCtx.resume();
-        }
-
+        // Convert the fresh file handle into a local safe URL stream block and start playback
+        const fileURL = URL.createObjectURL(file);
         audioPlayer.src = fileURL;
         audioPlayer.play();
+        // Update the custom button icon to show pause symbol when playing
+        btnPlayToggle.textContent = "⏸";
+
     } catch (err) {
-        console.error('Playback error:', err);
+        console.error("Critical failure during track playback initialization:", err);
+        nowPlayingText.textContent = "Error opening file stream";
+        nowArtistText.textContent = "Please try clicking the track again.";
     }
 }
 
@@ -518,4 +625,218 @@ rackTrigger.addEventListener('click', (e) => {
 
     // Toggle the class name to let CSS slide it open or closed safely
     controlRack.classList.toggle('collapsed');
+});
+
+// 🚀 GLOBAL KEYBOARD SHORTCUTS CONTROLLER
+window.addEventListener('keydown', (e) => {
+    // If the audio player doesn't have a file loaded yet, ignore key presses
+    if (!audioPlayer.src) return;
+
+    // Convert key name to lowercase to handle caps-lock smoothly
+    const key = e.key.toLowerCase();
+
+    switch (key) {
+        // 1. PLAY / PAUSE (Spacebar or K)
+        case ' ':
+        case 'k':
+            // Prevent the default browser action (like scrolling the page down when spacebar is pressed)
+            e.preventDefault(); 
+            if (audioPlayer.paused) {
+                audioPlayer.play();
+            } else {
+                audioPlayer.pause();
+            }
+            break;
+
+        // 2. SKIP FORWARD 10 SECONDS (Right Arrow or L)
+        case 'arrowright':
+        case 'l':
+            e.preventDefault();
+            audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
+            break;
+
+        // 3. SKIP BACKWARD 10 SECONDS (Left Arrow or J)
+        case 'arrowleft':
+        case 'j':
+            e.preventDefault();
+            audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+            break;
+
+        // 4. VOLUME UP 5% (Up Arrow)
+        case 'arrowup':
+            e.preventDefault();
+            audioPlayer.volume = Math.min(1, audioPlayer.volume + 0.05);
+            break;
+
+        // 5. VOLUME DOWN 5% (Down Arrow)
+        case 'arrowdown':
+            e.preventDefault();
+            audioPlayer.volume = Math.max(0, audioPlayer.volume - 0.05);
+            break;
+
+        // 6. MUTE / UNMUTE TOGGLE (M)
+        case 'm':
+            e.preventDefault();
+            audioPlayer.muted = !audioPlayer.muted;
+            break;
+
+        default:
+            // Let any other key act normally
+            break;
+    }
+});
+
+// 🚀 CORE QUEUE MANAGER FUNCTIONS
+
+// Add track filename handle into queue matrix arrays
+function addToQueue(filename) {
+    const trackData = fileMap.get(filename);
+    if (!trackData) return;
+
+    // Push into runtime state data array
+    playbackQueue.push(filename);
+    renderQueueUI();
+}
+
+// Render queue list entries visually in the dashboard tray panel
+function renderQueueUI() {
+    queueList.innerHTML = '';
+
+    if (playbackQueue.length === 0) {
+        queueContainer.style.display = "none";
+        return;
+    }
+
+    queueContainer.style.display = "block";
+
+    playbackQueue.forEach((filename, index) => {
+        const trackData = fileMap.get(filename);
+        if (!trackData) return;
+
+        const li = document.createElement('li');
+        li.className = 'queue-item';
+        li.innerHTML = `
+            <div class="queue-item-meta">
+                <span class="queue-item-title">${trackData.title}</span>
+                <span class="queue-item-artist">${trackData.artist}</span>
+            </div>
+            <button class="btn-remove-queue" data-index="${index}">✕</button>
+        `;
+
+        // Handle pulling a single track out of queue order positioning manually
+        li.querySelector('.btn-remove-queue').addEventListener('click', (e) => {
+            e.stopPropagation();
+            playbackQueue.splice(index, 1);
+            renderQueueUI();
+        });
+
+        queueList.appendChild(li);
+    });
+}
+
+// Clear out everything inside queue arrays
+btnClearQueue.addEventListener('click', () => {
+    playbackQueue = [];
+    renderQueueUI();
+});
+
+// 🚀 CONTINUOUS PLAYBACK PIPELINE: Checks queue immediately when active track finishes
+audioPlayer.addEventListener('ended', () => {
+    if (playbackQueue.length > 0) {
+        // Shift pulls the top song index out of the queue and plays it immediately
+        const nextTrackFilename = playbackQueue.shift();
+        renderQueueUI(); // Repaint tray layout map values
+        playTrack(nextTrackFilename);
+    }
+});
+
+// 🚀 CUSTOM TRACK CONTROLLER DRAWER LOGIC
+
+// 1. Play / Pause Central UI Switch Trigger
+btnPlayToggle.addEventListener('click', () => {
+    if (!audioPlayer.src) return;
+
+    if (audioPlayer.paused) {
+        audioPlayer.play();
+        btnPlayToggle.textContent = "⏸";
+    } else {
+        audioPlayer.pause();
+        btnPlayToggle.textContent = "▶";
+    }
+});
+
+// Update play button state if paused outside custom controls (like via keyboard shortucts)
+audioPlayer.addEventListener('play', () => btnPlayToggle.textContent = "⏸");
+audioPlayer.addEventListener('pause', () => btnPlayToggle.textContent = "▶");
+
+// 2. SKIP NEXT TRACK FUNCTION (⏭️)
+function skipToNext() {
+    if (playbackQueue.length > 0) {
+        const nextTrackFilename = playbackQueue.shift();
+        renderQueueUI(); // Repaint queue layout panel
+        playTrack(nextTrackFilename);
+    } else {
+        console.log("End of queue reached.");
+        // Optional: Implement auto-advance to next item in file tree if queue is empty
+    }
+}
+btnNext.addEventListener('click', skipToNext);
+
+// Bind our auto-advance listener to use the upgraded skipToNext handler
+audioPlayer.removeEventListener('ended', () => {}); // Clear old reference block
+audioPlayer.addEventListener('ended', skipToNext);
+
+// 3. SKIP PREVIOUS TRACK FUNCTION (⏮️)
+btnPrev.addEventListener('click', () => {
+    if (!audioPlayer.src) return;
+
+    // Failsafe condition: If song has played for more than 3 seconds, restart it
+    if (audioPlayer.currentTime > 3) {
+        audioPlayer.currentTime = 0;
+        return;
+    }
+
+    // Otherwise, pop the last song out of history and play it
+    if (playbackHistory.length > 0) {
+        const previousTrackFilename = playbackHistory.pop();
+        
+        // Put current track back to the top of queue line to allow stepping forward again
+        if (currentTrackKey) {
+            playbackQueue.unshift(currentTrackKey);
+            renderQueueUI();
+        }
+        
+        // Prevent adding current track to history during this transition cycle
+        currentTrackKey = null; 
+        playTrack(previousTrackFilename);
+    } else {
+        // No history exists, just loop back to start of song
+        audioPlayer.currentTime = 0;
+    }
+});
+
+// 4. TIMELINE BAR CONTROLLER & TIME STAMP SYNCHRONIZER
+function formatTime(secs) {
+    if (isNaN(secs)) return "0:00";
+    const minutes = Math.floor(secs / 60);
+    const seconds = Math.floor(secs % 60);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+}
+
+// Update track max duration lengths once loaded
+audioPlayer.addEventListener('durationchange', () => {
+    timelineSlider.max = Math.floor(audioPlayer.duration);
+    timeDuration.textContent = formatTime(audioPlayer.duration);
+});
+
+// Update slider thumb placement dynamically as audio proceeds
+audioPlayer.addEventListener('timeupdate', () => {
+    if (!audioPlayer.duration) return;
+    timelineSlider.value = Math.floor(audioPlayer.currentTime);
+    timeCurrent.textContent = formatTime(audioPlayer.currentTime);
+});
+
+// Let user drag timeline slider handle to seek smoothly mid-song
+timelineSlider.addEventListener('input', () => {
+    audioPlayer.currentTime = timelineSlider.value;
 });

@@ -14,7 +14,10 @@
     <div class="container">
         <header>
             <h1>FLAC-ify</h1>
-            <button id="btn-open">Select Music Folder</button>
+            <div class="folder-controls-group" style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                <button id="btn-open">Select Music Folder</button>
+                <a href="#" id="link-clear-folder" style="display: none; font-size: 0.75rem; color: #6b7280; text-decoration: none; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; transition: color 0.2s;" onmouseover="this.style.color='#00e5ff'" onmouseout="this.style.color='#6b7280'">Disconnect Folder</a>
+            </div>
         </header>
 
         <main>
@@ -31,7 +34,25 @@
                 <h3 id="now-playing">Now Playing: ---</h3>
                 <p id="now-artist">Artist: ---</p>
                 
-                <audio id="audio-player" controls></audio>
+                <!-- Upgraded Media Controller Deck -->
+                <div class="player-deck-wrapper">
+                    <!-- Invisible underlying core audio element -->
+                    <audio id="audio-player"></audio>
+                    
+                    <!-- Custom Hardware-Grade Control Buttons Bar -->
+                    <div class="deck-controls">
+                        <button id="btn-prev" class="deck-btn" title="Previous Track">⏮</button>
+                        <button id="btn-play-toggle" class="deck-btn play-major" title="Play/Pause">▶</button>
+                        <button id="btn-next" class="deck-btn" title="Next Track">⏭</button>
+                    </div>
+
+                    <!-- Sleek Progress Tracking Bar Link -->
+                    <div class="timeline-container">
+                        <span id="time-current" class="time-label">0:00</span>
+                        <input type="range" id="timeline-slider" min="0" max="100" value="0">
+                        <span id="time-duration" class="time-label">0:00</span>
+                    </div>
+                </div>
 
                 <!-- Lyrics Container -->
                 <div id="lyrics-container" class="lyrics-container">
@@ -101,7 +122,21 @@
             </div>
             
             <div class="playlist-section">
-                <h2>Library <span id="loading-text" style="font-size: 0.8rem; color: #1db954;"></span></h2>
+                <!-- Upgraded Header Layout -->
+                <h2>Library Explorer <span id="loading-text" style="font-size: 0.8rem; color: #00e5ff;"></span></h2>
+                
+                <!-- NEW: Dynamic Play Queue Subpanel -->
+                <div id="queue-container" class="queue-container" style="display: none;">
+                    <div class="queue-header">
+                        <h4>Up Next</h4>
+                        <button id="btn-clear-queue" class="btn-xs">Clear All</button>
+                    </div>
+                    <ul id="queue-list" class="queue-list">
+                        <!-- Queue items will inject here dynamically -->
+                    </ul>
+                </div>
+
+                <!-- Master File Tree List Container -->
                 <ul id="track-list" class="track-list">
                     <li class="empty-state">No folder selected or saved.</li>
                 </ul>

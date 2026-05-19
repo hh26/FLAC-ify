@@ -506,3 +506,240 @@ input[type="range"]:hover::-webkit-slider-thumb {
     color: #00e5ff;
     opacity: 0.8;
 }
+
+/* Interactive File Explorer Tree Styling */
+.tree-folder {
+    margin-bottom: 4px;
+}
+
+.folder-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background-color: #0e1017;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #9ca3af;
+    border: 1px solid rgba(255, 255, 255, 0.01);
+    user-select: none;
+    transition: all 0.2s ease;
+}
+
+.folder-header:hover {
+    background-color: #131622;
+    color: #ffffff;
+    border-color: rgba(0, 229, 255, 0.1);
+}
+
+.folder-icon {
+    font-size: 0.8rem;
+    color: #4b5563;
+    transition: transform 0.2s, color 0.2s;
+}
+
+.folder-header:hover .folder-icon {
+    color: #00e5ff;
+}
+
+/* Rotates triangle indicator when folder is expanded */
+.tree-folder.expanded > .folder-header .folder-icon {
+    transform: rotate(90deg);
+    color: #00e5ff;
+}
+
+/* Hidden sub-content tree drawer */
+.folder-content {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 20px; /* Indents subfolders and files inside this directory */
+    margin-top: 4px;
+    border-left: 1px dashed rgba(255, 255, 255, 0.05); /* Technical tree visual guideline */
+}
+
+.tree-folder.expanded > .folder-content {
+    display: flex;
+}
+
+/* Tweak track item slightly for the nested look */
+.track-item {
+    margin-bottom: 2px;
+}
+
+/* Dynamic Play Queue Panel Staging */
+.queue-container {
+    background: #0c0d12;
+    border: 1px solid rgba(0, 229, 255, 0.08);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.queue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.queue-header h4 {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #00e5ff;
+}
+
+.queue-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* Track list hover utility modification to introduce action buttons */
+.track-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+}
+
+.btn-add-queue {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #6b7280;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0; /* Stays invisible until parent row is hovered */
+    transition: all 0.2s ease;
+}
+
+.track-item:hover .btn-add-queue {
+    opacity: 1; /* Reveals button smoothly on cursor proximity */
+}
+
+.btn-add-queue:hover {
+    color: #00e5ff;
+    border-color: rgba(0, 229, 255, 0.4);
+    background: rgba(0, 229, 255, 0.03);
+}
+
+/* Mini styled cards running inside the queue stack */
+.queue-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: #11131c;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #e5e7eb;
+}
+
+.queue-item-meta {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 80%;
+}
+
+.queue-item-title {
+    font-weight: 600;
+}
+
+.queue-item-artist {
+    font-size: 0.7rem;
+    color: #4b5563;
+}
+
+.btn-remove-queue {
+    background: transparent;
+    border: none;
+    color: #4b5563;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.btn-remove-queue:hover {
+    color: #ef4444; /* Flashes bright red on delete focus */
+}
+
+/* Custom Media Controller Deck Grid */
+.player-deck-wrapper {
+    background: #090a0f;
+    border: 1px solid rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.deck-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 25px;
+}
+
+.deck-btn {
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: color 0.2s, transform 0.1s;
+    user-select: none;
+}
+
+.deck-btn:hover {
+    color: #00e5ff;
+    transform: scale(1.1);
+}
+
+.deck-btn.play-major {
+    font-size: 1.6rem;
+    color: #e5e7eb;
+}
+.deck-btn.play-major:hover {
+    color: #00e5ff;
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+}
+
+/* Custom Timeline Progress Bar */
+.timeline-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+}
+
+.time-label {
+    font-size: 0.7rem;
+    font-family: monospace;
+    color: #4b5563;
+    min-width: 32px;
+}
+
+#timeline-slider {
+    flex-grow: 1;
+    margin: 0 !important;
+}
