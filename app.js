@@ -381,15 +381,42 @@ async function loadLibrary(dirHandle) {
                     <button class="btn-add-queue" data-filename="${fullUniqueKey}">+ Queue</button>
                 `;
                 
-                li.addEventListener('click', (e) => {
+                // Replace the old click listener on the track list item rows with this:
+                li.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     
-                    // Route to our queue array or trigger the primary play deck smoothly
+                    // Route to our queue array if the "+ Queue" button was clicked
                     if (e.target.classList.contains('btn-add-queue')) {
-                        addToQueue(e.target.getAttribute('data-filename'));
-                    } else {
-                        playTrack(fullUniqueKey); // Passes the absolute unique lookup pointer
+                        addToQueue(fullUniqueKey);
+                        return;
                     }
+
+                    // 🚀 NEW: Auto-Populate Queue Feature
+                    // Find the parent element containing this folder's contents (.folder-content or .track-list)
+                    const parentFolder = li.parentElement;
+                    if (parentFolder) {
+                        // Grab all track items inside this exact directory branch level
+                        const siblingTracks = Array.from(parentFolder.querySelectorAll(':scope > .track-item'));
+                        const clickedIndex = siblingTracks.indexOf(li);
+
+                        // Clear the active queue to load the fresh album context cleanly
+                        playbackQueue = [];
+
+                        // Loop through all tracks sitting below the clicked song inside this folder pass
+                        for (let i = clickedIndex + 1; i < siblingTracks.length; i++) {
+                            const siblingButton = siblingTracks[i].querySelector('.btn-add-queue');
+                            if (siblingButton) {
+                                const siblingKey = siblingButton.getAttribute('data-filename');
+                                playbackQueue.push(siblingKey);
+                            }
+                        }
+
+                        // Paint updated queue items in the sidebar dashboard panel
+                        renderQueueUI();
+                    }
+
+                    // Fire the primary track play deck immediately
+                    playTrack(fullUniqueKey);
                 });
                 
                 parentDOMElement.appendChild(li);
@@ -627,19 +654,23 @@ rackTrigger.addEventListener('click', (e) => {
     controlRack.classList.toggle('collapsed');
 });
 
-// 🚀 GLOBAL KEYBOARD SHORTCUTS CONTROLLER
+// 🚀 UPGRADED GLOBAL KEYBOARD SHORTCUTS CONTROLLER
 window.addEventListener('keydown', (e) => {
     // If the audio player doesn't have a file loaded yet, ignore key presses
     if (!audioPlayer.src) return;
 
     // Convert key name to lowercase to handle caps-lock smoothly
     const key = e.key.toLowerCase();
+    
+    // Check if Ctrl (Windows/Linux) or Cmd (Mac) is being held down
+    const isModifierActive = e.ctrlKey || e.metaKey;
 
     switch (key) {
         // 1. PLAY / PAUSE (Spacebar or K)
         case ' ':
         case 'k':
-            // Prevent the default browser action (like scrolling the page down when spacebar is pressed)
+            // Don't intercept spacebar if modifier is held (lets standard OS shortcuts work)
+            if (isModifierActive) return; 
             e.preventDefault(); 
             if (audioPlayer.paused) {
                 audioPlayer.play();
@@ -648,40 +679,55 @@ window.addEventListener('keydown', (e) => {
             }
             break;
 
-        // 2. SKIP FORWARD 10 SECONDS (Right Arrow or L)
+        // 2. SKIP FORWARD (Ctrl+Right Arrow for Next Track OR L/Right Arrow for 10s Seek)
         case 'arrowright':
         case 'l':
             e.preventDefault();
-            audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
+            if (isModifierActive || key === 'l') {
+                // ⏭️ Ctrl + Right Arrow or L triggers full Next Track Skip
+                if (typeof skipToNext === 'function') skipToNext();
+            } else {
+                // Standard Right Arrow seeks forward 10 seconds
+                audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
+            }
             break;
 
-        // 3. SKIP BACKWARD 10 SECONDS (Left Arrow or J)
+        // 3. SKIP BACKWARD (Ctrl+Left Arrow for Previous Track OR J/Left Arrow for 10s Seek)
         case 'arrowleft':
         case 'j':
             e.preventDefault();
-            audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+            if (isModifierActive || key === 'j') {
+                // ⏮️ Ctrl + Left Arrow or J triggers full Previous Track Skip
+                // Mimic the physical button click event to run our precise 3-second history logic
+                if (btnPrev) btnPrev.click();
+            } else {
+                // Standard Left Arrow seeks backward 10 seconds
+                audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+            }
             break;
 
         // 4. VOLUME UP 5% (Up Arrow)
         case 'arrowup':
+            if (isModifierActive) return; // Prevent conflicting with system window shortcuts
             e.preventDefault();
             audioPlayer.volume = Math.min(1, audioPlayer.volume + 0.05);
             break;
 
         // 5. VOLUME DOWN 5% (Down Arrow)
         case 'arrowdown':
+            if (isModifierActive) return;
             e.preventDefault();
             audioPlayer.volume = Math.max(0, audioPlayer.volume - 0.05);
             break;
 
         // 6. MUTE / UNMUTE TOGGLE (M)
         case 'm':
+            if (isModifierActive) return;
             e.preventDefault();
             audioPlayer.muted = !audioPlayer.muted;
             break;
 
         default:
-            // Let any other key act normally
             break;
     }
 });

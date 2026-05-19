@@ -743,3 +743,58 @@ input[type="range"]:hover::-webkit-slider-thumb {
     flex-grow: 1;
     margin: 0 !important;
 }
+
+/* Micro Keyboard Shortcuts Legend Panel */
+.shortcuts-legend {
+    margin-top: 25px;
+    padding: 12px 14px;
+    background-color: #08090d;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.01);
+}
+
+.shortcuts-legend h4 {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #4b5563;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+    padding-bottom: 4px;
+}
+
+.legend-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* Splits into a perfect 2-column micro layout */
+    gap: 8px 16px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: #9ca3af;
+}
+
+.legend-item span {
+    color: #4b5563;
+    font-size: 0.68rem;
+}
+
+/* Styled HTML Keyboard Key Badges */
+kbd {
+    background: #141622;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    color: #00e5ff; /* Cyan shortcut accents */
+    display: inline-block;
+    font-family: monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 5px;
+    white-space: nowrap;
+}

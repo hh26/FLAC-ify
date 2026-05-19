@@ -41,15 +41,16 @@
                     
                     <!-- Custom Hardware-Grade Control Buttons Bar -->
                     <div class="deck-controls">
-                        <button id="btn-prev" class="deck-btn" title="Previous Track">⏮</button>
-                        <button id="btn-play-toggle" class="deck-btn play-major" title="Play/Pause">▶</button>
-                        <button id="btn-next" class="deck-btn" title="Next Track">⏭</button>
+                        <button id="btn-prev" class="deck-btn" title="Previous Track (Ctrl + Left Arrow)">⏮</button>
+                        <button id="btn-play-toggle" class="deck-btn play-major" title="Play / Pause (Spacebar or K)">▶</button>
+                        <button id="btn-next" class="deck-btn" title="Next Track (Ctrl + Right Arrow)">⏭</button>
                     </div>
 
                     <!-- Sleek Progress Tracking Bar Link -->
                     <div class="timeline-container">
                         <span id="time-current" class="time-label">0:00</span>
-                        <input type="range" id="timeline-slider" min="0" max="100" value="0">
+                        <!-- Upgraded Timeline Slider with Tooltip -->
+                        <input type="range" id="timeline-slider" min="0" max="100" value="0" title="Seek Track (Left / Right Arrow for ±10s)">
                         <span id="time-duration" class="time-label">0:00</span>
                     </div>
                 </div>
@@ -61,7 +62,7 @@
 
                 <!-- MOVED & UPGRADED: Collapsible Audio Control Toolkit -->
                 <div id="control-rack" class="control-rack collapsed">
-                    <div id="rack-trigger" class="rack-header">
+                    <div id="rack-trigger" class="rack-header" title="Audio Options (Press M to Mute / Unmute Player)">
                         <div class="header-title-group">
                             <span id="rack-arrow" class="rack-arrow">▶</span>
                             <h3>Audio Toolkit</h3>
@@ -115,6 +116,18 @@
                                 <span>L</span>
                                 <input type="range" id="audio-balance" min="-1" max="1" value="0" step="0.1">
                                 <span>R</span>
+                            </div>
+                        </div>
+
+                        <div class="shortcuts-legend">
+                            <h4>Desk Shortcuts Reference</h4>
+                            <div class="legend-grid">
+                                <div class="legend-item"><kbd>Space</kbd> or <kbd>K</kbd> <span>Play / Pause</span></div>
+                                <div class="legend-item"><kbd>Ctrl</kbd> + <kbd>→</kbd> <span>Next Track</span></div>
+                                <div class="legend-item"><kbd>Ctrl</kbd> + <kbd>←</kbd> <span>Previous Track</span></div>
+                                <div class="legend-item"><kbd>→</kbd> / <kbd>←</kbd> <span>Seek ±10s</span></div>
+                                <div class="legend-item"><kbd>↑</kbd> / <kbd>↓</kbd> <span>Volume ±5%</span></div>
+                                <div class="legend-item"><kbd>M</kbd> <span>Mute Toggle</span></div>
                             </div>
                         </div>
                     </div> <!-- End rack-body -->
