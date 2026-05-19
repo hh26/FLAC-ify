@@ -117,25 +117,54 @@ btnOpen.addEventListener('click', async () => {
     }
 });
 
-// 3. New Single-Click Clear Trigger Handler Link
+// 3. Single-Click Clear Trigger Handler Link (With Queue & Lyrics Flush Integration)
 linkClearFolder.addEventListener('click', async (e) => {
     e.preventDefault(); // Stop page from jumping to top anchor point
     
-    // Wipe local storage indices entirely
+    // 1. Wipe local storage indices and cached folder handles entirely
     await idbKeyval.del('music-folder');
     savedFolderHandle = null;
     
-    // Reset buttons back to initial defaults layout
+    // 2. Flush the playback queue and history matrices instantly
+    playbackQueue = [];
+    playbackHistory = [];
+    currentTrackKey = null;
+    renderQueueUI(); // Repaints the sidebar UI panel to hide the "Up Next" container tray
+    
+    // 3. 🚀 NEW: Clear out the synced lyrics panel text and reset tracking states
+    // This targets your core lyrics DOM rendering containers
+    const lyricBox = document.getElementById('lyrics-container') || 
+                     document.getElementById('lyrics-box') || 
+                     document.getElementById('lyrics-display');
+                     
+    if (lyricBox) {
+        lyricBox.innerHTML = '<p class="lyric-empty" style="color: #4b5563; font-style: italic; text-align: center; margin-top: 40px;">Select a track to load library lyrics</p>';
+    }
+    
+    // Reset any global lyric-tracking timer or array parameters if your lyric engine uses them
+    if (typeof currentLyrics !== 'undefined') currentLyrics = [];
+    if (typeof lyricLines !== 'undefined') lyricLines = [];
+
+    // 4. Reset buttons back to initial defaults layout
     btnOpen.textContent = "Select Music Folder";
     linkClearFolder.style.display = "none";
     trackList.innerHTML = '<li class="empty-state">Folder disconnected. Select a new directory to load music.</li>';
     
-    // Refresh the player screen profile values back to blank state
+    // 5. Refresh the player screen profile deck values back to blank state
     nowPlayingText.textContent = "Now Playing: ---";
     nowArtistText.textContent = "Artist: ---";
     audioPlayer.src = "";
+    btnPlayToggle.textContent = "▶"; 
+    
+    // 6. Clean up artwork rendering states
     albumArt.style.display = "none";
     artPlaceholder.style.display = "flex";
+    
+    // 7. Reset timeline tracking sliders back to zero parameters position
+    timelineSlider.value = 0;
+    timelineSlider.max = 100;
+    timeCurrent.textContent = "0:00";
+    timeDuration.textContent = "0:00";
 });
 
 // Initialize the Master Routing Architecture Graph
