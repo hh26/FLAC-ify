@@ -28,7 +28,6 @@ const eqBassInput = document.getElementById('eq-bass');
 const eqMidInput = document.getElementById('eq-mid');
 const eqTrebleInput = document.getElementById('eq-treble');
 const balanceInput = document.getElementById('audio-balance');
-// Add these to your top list of DOM elements
 const btnReset = document.getElementById('btn-reset');
 const valBass = document.getElementById('val-bass');
 const valMid = document.getElementById('val-mid');
@@ -37,11 +36,9 @@ const valBalance = document.getElementById('val-balance');
 const controlRack = document.getElementById('control-rack');
 const rackTrigger = document.getElementById('rack-trigger');
 const linkClearFolder = document.getElementById('link-clear-folder');
-// Grab references to our new queue UI components
 const queueContainer = document.getElementById('queue-container');
 const queueList = document.getElementById('queue-list');
 const btnClearQueue = document.getElementById('btn-clear-queue');
-// Controller Deck DOM Hook References
 const btnPrev = document.getElementById('btn-prev');
 const btnPlayToggle = document.getElementById('btn-play-toggle');
 const btnNext = document.getElementById('btn-next');
@@ -54,10 +51,30 @@ const formatScopeToggle = document.getElementById('format-scope-toggle');
 let fileMap = new Map();
 let parsedLyrics = []; 
 let lastActiveIndex = -1; 
-let savedFolderHandle = null; // 🚀 NEW: Keeps track of the loaded folder state
+let savedFolderHandle = null; 
 let playbackQueue = []; 
 let playbackHistory = []; 
-let currentTrackKey = null; // Remembers what unique file string is currently loaded
+let currentTrackKey = null; 
+
+// Volume HUD State Matrix Tracker Variables
+const volumeHUD = document.getElementById('volume-hud');
+const hudFill = document.getElementById('hud-fill');
+const hudPercentage = document.getElementById('hud-percentage');
+const hudIcon = volumeHUD.querySelector('.hud-icon');
+let hudTimer = null;
+
+// Playback State Mode Configurations
+let isShuffleActive = false;
+let repeatMode = 'linear'; // Options: 'linear' -> 'one' -> 'all'
+let masterQueueBackup = []; 
+
+const btnShuffle = document.getElementById('btn-shuffle');
+const btnRepeatMode = document.getElementById('btn-repeat-mode');
+
+// Helper utility to turn messy file names into pristine, browser-safe element IDs
+function makeSafeId(str) {
+    return 'track-' + encodeURIComponent(str).replace(/%/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+}
 
 // 1. Initialize App & Register Service Worker (PWA)
 window.addEventListener('load', async () => {
@@ -69,7 +86,7 @@ window.addEventListener('load', async () => {
     if (savedHandle) {
         savedFolderHandle = savedHandle;
         btnOpen.textContent = "Unlock Saved Library"; 
-        linkClearFolder.style.display = "inline-block"; // Show the disconnect button option
+        linkClearFolder.style.display = "inline-block"; 
         trackList.innerHTML = '<li class="empty-state">Saved library detected. Click "Unlock Saved Library" above to sync your device files.</li>';
     }
 });
@@ -77,40 +94,132 @@ window.addEventListener('load', async () => {
 // Helper to query permission state
 async function verifyPermission(fileHandle) {
     const options = { mode: 'read' };
-    // First query silently to see if they already granted it this session
     if ((await fileHandle.queryPermission(options)) === 'granted') return true;
-    // Request permission explicitly (this requires the user gesture to work)
     if ((await fileHandle.requestPermission(options)) === 'granted') return true;
     return false;
 }
 
-// 2. Main Button Click Event Listener (Handles both Picking and Unlocking)
+// 2. Upgraded Main Button Click Event Listener (With Brave & Firefox Fallback Engine)
 btnOpen.addEventListener('click', async () => {
     try {
-        let dirHandle = savedFolderHandle;
+        const supportsModernPicker = 'showDirectoryPicker' in window;
 
-        // SCENARIO A: Fresh load, no folder has been cached yet
-        if (!dirHandle) {
-            dirHandle = await window.showDirectoryPicker();
-            await idbKeyval.set('music-folder', dirHandle);
-            savedFolderHandle = dirHandle;
-            linkClearFolder.style.display = "inline-block";
-        } else {
-            // SCENARIO B: Unlocking an existing cached folder handle
-            const permission = await verifyPermission(dirHandle);
-            if (!permission) {
-                // Handle denial gracefully
-                savedFolderHandle = null;
-                linkClearFolder.style.display = "none";
-                btnOpen.textContent = "Select Music Folder";
-                trackList.innerHTML = '<li class="empty-state">Permission denied by client browser.</li>';
-                return;
+        if (supportsModernPicker) {
+            // --- CHROMIUM/CHROME PATHWAY ---
+            let dirHandle = savedFolderHandle;
+
+            if (!dirHandle) {
+                dirHandle = await window.showDirectoryPicker();
+                await idbKeyval.set('music-folder', dirHandle);
+                savedFolderHandle = dirHandle;
+                linkClearFolder.style.display = "inline-block";
+            } else {
+                const permission = await verifyPermission(dirHandle);
+                if (!permission) {
+                    savedFolderHandle = null;
+                    linkClearFolder.style.display = "none";
+                    btnOpen.textContent = "Select Music Folder";
+                    trackList.innerHTML = '<li class="empty-state">Permission denied by client browser.</li>';
+                    return;
+                }
             }
-        }
 
-        // Once confirmed, change main text label to active status indicator
-        btnOpen.textContent = "Library Synchronized";
-        loadLibrary(dirHandle);
+            btnOpen.textContent = "Library Synchronized";
+            loadLibrary(dirHandle);
+
+        } else {
+            // --- BRAVE / FIREFOX / SAFARI FALLBACK PATHWAY ---
+            console.log("Modern File System API blocked or unsupported. Launching standard folder engine...");
+            
+            const fallbackInput = document.createElement('input');
+            fallbackInput.type = 'file';
+            fallbackInput.webkitdirectory = true; 
+            fallbackInput.multiple = true;
+            
+            fallbackInput.addEventListener('change', async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+
+                trackList.innerHTML = '';
+                fileMap.clear();
+                loadingText.textContent = "(Indexing files...)";
+
+                const allowAllFormats = formatScopeToggle.checked;
+                files.sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath));
+
+                files.forEach(file => {
+                    const lowerName = file.name.toLowerCase();
+                    const isValid = allowAllFormats 
+                        ? (lowerName.endsWith('.flac') || lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.m4a') || lowerName.endsWith('.ogg'))
+                        : lowerName.endsWith('.flac');
+
+                    if (isValid) {
+                        const fullUniqueKey = `${file.name}-${file.size}`;
+                        const cleanTitle = file.name.replace(/\.(flac|mp3|wav|m4a|ogg)$/i, '');
+                        const fileExt = file.name.split('.').pop().toUpperCase();
+
+                        fileMap.set(fullUniqueKey, {
+                            isFallbackFile: true,
+                            filePayload: file,
+                            title: cleanTitle,
+                            artist: "Local Audio"
+                        });
+
+                        const li = document.createElement('li');
+                        li.className = 'track-item';
+                        li.id = makeSafeId(fullUniqueKey);
+                        li.innerHTML = `
+                            <div class="track-meta" style="max-width: 75%;">
+                                <span class="track-title">${cleanTitle}</span>
+                                <span class="track-artist" style="color: #4b5563;">${fileExt} / ${file.webkitRelativePath.split('/')[0]}</span>
+                            </div>
+                            <button class="btn-add-queue" data-filename="${fullUniqueKey}">+ Queue</button>
+                        `;
+
+                        li.addEventListener('click', (evt) => {
+                            evt.stopPropagation();
+                            if (evt.target.classList.contains('btn-add-queue')) {
+                                addToQueue(fullUniqueKey);
+                                return;
+                            }
+                            
+                            const parentFolder = li.parentElement;
+                            if (parentFolder) {
+                                const siblingTracks = Array.from(parentFolder.querySelectorAll('.track-item'));
+                                const clickedIndex = siblingTracks.indexOf(li);
+                                playbackQueue = [];
+                                masterQueueBackup = [];
+
+                                for (let i = clickedIndex + 1; i < siblingTracks.length; i++) {
+                                    const btn = siblingTracks[i].querySelector('.btn-add-queue');
+                                    if (btn) {
+                                        const siblingKey = btn.getAttribute('data-filename');
+                                        playbackQueue.push(siblingKey);
+                                        masterQueueBackup.push(siblingKey);
+                                    }
+                                }
+
+                                if (isShuffleActive) shuffleArray(playbackQueue);
+                                renderQueueUI();
+                            }
+                            playTrack(fullUniqueKey);
+                        });
+
+                        trackList.appendChild(li);
+                    }
+                });
+
+                loadingText.textContent = "";
+                btnOpen.textContent = "Folder Selected";
+                linkClearFolder.style.display = "inline-block";
+                
+                if (fileMap.size === 0) {
+                    trackList.innerHTML = '<li class="empty-state">No matching audio files found inside this directory structure.</li>';
+                }
+            });
+
+            fallbackInput.click();
+        }
 
     } catch (err) {
         console.log('Folder acquisition lifecycle canceled or interrupted.', err);
@@ -119,20 +228,17 @@ btnOpen.addEventListener('click', async () => {
 
 // 3. Single-Click Clear Trigger Handler Link (With Queue & Lyrics Flush Integration)
 linkClearFolder.addEventListener('click', async (e) => {
-    e.preventDefault(); // Stop page from jumping to top anchor point
+    e.preventDefault(); 
     
-    // 1. Wipe local storage indices and cached folder handles entirely
     await idbKeyval.del('music-folder');
     savedFolderHandle = null;
     
-    // 2. Flush the playback queue and history matrices instantly
     playbackQueue = [];
     playbackHistory = [];
+    masterQueueBackup = [];
     currentTrackKey = null;
-    renderQueueUI(); // Repaints the sidebar UI panel to hide the "Up Next" container tray
+    renderQueueUI(); 
     
-    // 3. 🚀 NEW: Clear out the synced lyrics panel text and reset tracking states
-    // This targets your core lyrics DOM rendering containers
     const lyricBox = document.getElementById('lyrics-container') || 
                      document.getElementById('lyrics-box') || 
                      document.getElementById('lyrics-display');
@@ -141,26 +247,21 @@ linkClearFolder.addEventListener('click', async (e) => {
         lyricBox.innerHTML = '<p class="lyric-empty" style="color: #4b5563; font-style: italic; text-align: center; margin-top: 40px;">Select a track to load library lyrics</p>';
     }
     
-    // Reset any global lyric-tracking timer or array parameters if your lyric engine uses them
     if (typeof currentLyrics !== 'undefined') currentLyrics = [];
     if (typeof lyricLines !== 'undefined') lyricLines = [];
 
-    // 4. Reset buttons back to initial defaults layout
     btnOpen.textContent = "Select Music Folder";
     linkClearFolder.style.display = "none";
     trackList.innerHTML = '<li class="empty-state">Folder disconnected. Select a new directory to load music.</li>';
     
-    // 5. Refresh the player screen profile deck values back to blank state
     nowPlayingText.textContent = "Now Playing: ---";
     nowArtistText.textContent = "Artist: ---";
     audioPlayer.src = "";
     btnPlayToggle.textContent = "▶"; 
     
-    // 6. Clean up artwork rendering states
     albumArt.style.display = "none";
     artPlaceholder.style.display = "flex";
     
-    // 7. Reset timeline tracking sliders back to zero parameters position
     timelineSlider.value = 0;
     timelineSlider.max = 100;
     timeCurrent.textContent = "0:00";
@@ -175,54 +276,41 @@ function initWebAudio() {
     audioSource = audioCtx.createMediaElementSource(audioPlayer);
     analyser = audioCtx.createAnalyser();
 
-    // 1. Configure the Dynamic Range Compressor (Auto Volume Leveler)
     compressorNode = audioCtx.createDynamicsCompressor();
-    // Default mastering-grade settings:
     compressorNode.threshold.setValueAtTime(-24, audioCtx.currentTime);
     compressorNode.knee.setValueAtTime(30, audioCtx.currentTime);
     compressorNode.ratio.setValueAtTime(12, audioCtx.currentTime);
     compressorNode.attack.setValueAtTime(0.003, audioCtx.currentTime);
     compressorNode.release.setValueAtTime(0.25, audioCtx.currentTime);
 
-    // 2. Configure the 3-Band Equalizer Filter Nodes
     eqBassNode = audioCtx.createBiquadFilter();
     eqBassNode.type = 'lowshelf';
-    eqBassNode.frequency.value = 200; // Captures frequencies under 200Hz
+    eqBassNode.frequency.value = 200; 
     eqBassNode.gain.value = parseFloat(eqBassInput.value);
 
     eqMidNode = audioCtx.createBiquadFilter();
     eqMidNode.type = 'peaking';
     eqMidNode.Q.value = 1.0; 
-    eqMidNode.frequency.value = 2500; // Targets standard vocal/instrument definitions
+    eqMidNode.frequency.value = 2500; 
     eqMidNode.gain.value = parseFloat(eqMidInput.value);
 
     eqTrebleNode = audioCtx.createBiquadFilter();
     eqTrebleNode.type = 'highshelf';
-    eqTrebleNode.frequency.value = 8000; // Air frequencies above 8kHz
+    eqTrebleNode.frequency.value = 8000; 
     eqTrebleNode.gain.value = parseFloat(eqTrebleInput.value);
 
-    // 3. Configure the Stereo Panner Node
     pannerNode = audioCtx.createStereoPanner();
     pannerNode.pan.value = parseFloat(balanceInput.value);
 
-    // 4. Configure Visualizer Base Settings
     analyser.fftSize = 128;
-
-    // 5. Connect the Connected Graph Chain Flow:
-    // Source -> Equalizers (Bass -> Mid -> Treble) -> Panner -> Analyser -> Output
-    // (Note: We branch the compressor selectively below)
     
     routeAudioPipeline();
-
-    // Fire Up Visualizer Animation Loops
     drawVisualizer();
 }
 
-// Manually control routing to toggle compressor smoothly mid-track
 function routeAudioPipeline() {
     if (!audioSource) return;
 
-    // Disconnect everything to rebuild safely
     audioSource.disconnect();
     compressorNode.disconnect();
     eqBassNode.disconnect();
@@ -231,7 +319,6 @@ function routeAudioPipeline() {
     pannerNode.disconnect();
     analyser.disconnect();
 
-    // Assemble chain conditionally based on if leveler checkbox is checked
     if (compressorToggle.checked) {
         audioSource.connect(compressorNode);
         compressorNode.connect(eqBassNode);
@@ -239,7 +326,6 @@ function routeAudioPipeline() {
         audioSource.connect(eqBassNode);
     }
 
-    // Connect remaining static mastering chain segments
     eqBassNode.connect(eqMidNode);
     eqMidNode.connect(eqTrebleNode);
     eqTrebleNode.connect(pannerNode);
@@ -247,7 +333,6 @@ function routeAudioPipeline() {
     analyser.connect(audioCtx.destination);
 }
 
-// Dynamic UI Labels Sync Updater Function
 function updateControlLabels() {
     valBass.textContent = `${eqBassInput.value > 0 ? '+' : ''}${eqBassInput.value}dB`;
     valMid.textContent = `${eqMidInput.value > 0 ? '+' : ''}${eqMidInput.value}dB`;
@@ -259,7 +344,6 @@ function updateControlLabels() {
     else valBalance.textContent = `R ${Math.abs(Math.round(balance * 100))}%`;
 }
 
-// Attach Inputs and Hardware Nodes to Real-time Sync listeners
 compressorToggle.addEventListener('change', () => {
     routeAudioPipeline();
 });
@@ -284,22 +368,16 @@ balanceInput.addEventListener('input', (e) => {
     if (pannerNode) pannerNode.pan.setValueAtTime(parseFloat(e.target.value), audioCtx.currentTime);
 });
 
-// 🚀 MASTER DECK RESET EVENT HANDLER
 btnReset.addEventListener('click', () => {
-    // 1. Rollback DOM UI parameters down to initial defaults
     compressorToggle.checked = false;
     eqBassInput.value = 0;
     eqMidInput.value = 0;
     eqTrebleInput.value = 0;
     balanceInput.value = 0;
 
-    // 2. Refresh alphanumeric display labels text nodes
     updateControlLabels();
-
-    // 3. Re-verify pipeline paths (Safely shuts off Compressor loop if active)
     routeAudioPipeline();
 
-    // 4. Force underlying Audio Nodes back to perfectly flat responses instantly
     if (audioCtx) {
         const now = audioCtx.currentTime;
         if (eqBassNode) eqBassNode.gain.setValueAtTime(0, now);
@@ -309,18 +387,15 @@ btnReset.addEventListener('click', () => {
     }
 });
 
-// Real-time Rendering Loop using Canvas
 function drawVisualizer() {
     requestAnimationFrame(drawVisualizer); 
-
     if (!analyser) return;
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
     analyser.getByteFrequencyData(dataArray);
 
-    canvasCtx.fillStyle = '#10121a'; // Matches your shiny card body dark profile background
+    canvasCtx.fillStyle = '#10121a'; 
     canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     const barWidth = (canvas.width / bufferLength) * 1.3;
@@ -328,14 +403,13 @@ function drawVisualizer() {
     let x = 0;
 
     for (let i = 0; i < bufferLength; i++) {
-        barHeight = dataArray[i] * 0.35; // Calibrated bar scale padding variables 
+        barHeight = dataArray[i] * 0.35; 
         canvasCtx.fillStyle = `rgb(0, ${Math.min(180 + barHeight, 255)}, 255)`;
         canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 3, barHeight);
         x += barWidth;
     }
 }
 
-// Check IndexedDB
 async function checkSavedDirectory() {
     const savedHandle = await idbKeyval.get('music-folder');
     if (savedHandle) {
@@ -344,52 +418,71 @@ async function checkSavedDirectory() {
     }
 }
 
-// Helper utility to turn messy file names into pristine, browser-safe element IDs
-function makeSafeId(str) {
-    return 'track-' + encodeURIComponent(str).replace(/%/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-}
-
-// 4. Upgraded Format-Aware Directory Tree Engine: Dynamically maps selectable file arrays
+// 4. Upgraded Format-Aware Directory Tree Engine: Safe Structural Pass matching
 async function loadLibrary(dirHandle) {
     trackList.innerHTML = '';
     fileMap.clear();
     loadingText.textContent = "(Building library tree...)";
 
-    // Detect user preferences state configuration selection paths right now
     const allowAllFormats = formatScopeToggle.checked;
 
-    // Helper evaluation utility to validate track names against configuration constraints
     function isValidAudioFile(filename) {
         const lowerName = filename.toLowerCase();
         if (allowAllFormats) {
-            // Expanded compatibility tracking matrix
             return lowerName.endsWith('.flac') || 
                    lowerName.endsWith('.mp3')  || 
                    lowerName.endsWith('.wav')  || 
                    lowerName.endsWith('.m4a')  || 
                    lowerName.endsWith('.ogg');
         }
-        // Strict baseline fallback execution criteria
         return lowerName.endsWith('.flac');
     }
 
-    // Single-pass structural scanner that filters files instantly by format types configuration
     async function buildDOM(folderHandle, parentDOMElement) {
         for await (const entry of folderHandle.values()) {
+            // ... inside buildDOM within loadLibrary, replace the 'directory' block with this:
             if (entry.kind === 'directory') {
                 const folderDiv = document.createElement('div');
                 folderDiv.className = 'tree-folder collapsed';
 
                 const headerDiv = document.createElement('div');
                 headerDiv.className = 'folder-header';
-                headerDiv.innerHTML = `<span class="folder-icon">▶</span> 📁 ${entry.name}`;
+                // 🚀 NEW: Added the button template inline inside the header wrapper
+                headerDiv.innerHTML = `
+                    <div class="folder-title-clicker" style="cursor: pointer; flex-grow: 1;">
+                        <span class="folder-icon">▶</span> 📁 ${entry.name}
+                    </div>
+                    <button class="btn-add-folder-queue" title="Add all songs in this folder to queue">+ Queue Folder</button>
+                `;
 
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'folder-content';
 
-                headerDiv.addEventListener('click', (e) => {
+                // Separate tree collapsing from the queue action button click
+                headerDiv.querySelector('.folder-title-clicker').addEventListener('click', (e) => {
                     e.stopPropagation();
                     folderDiv.classList.toggle('expanded');
+                });
+
+                // 🚀 NEW: Recursively find and append all children audio track files underneath this node branch
+                headerDiv.querySelector('.btn-add-folder-queue').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    
+                    // Pull all individual tracks living inside this container layout element
+                    const directChildButtons = Array.from(contentDiv.querySelectorAll('.btn-add-queue'));
+                    
+                    if (directChildButtons.length > 0) {
+                        const tracksToAdd = directChildButtons.map(btn => btn.getAttribute('data-filename'));
+                        
+                        // If shuffle mode is engaged, randomize the folder layout cluster before adding it
+                        if (isShuffleActive) {
+                            shuffleArray(tracksToAdd);
+                        }
+                        
+                        // Append directly to the active queue matrix arrays
+                        playbackQueue = [...playbackQueue, ...tracksToAdd];
+                        renderQueueUI();
+                    }
                 });
 
                 folderDiv.appendChild(headerDiv);
@@ -401,14 +494,11 @@ async function loadLibrary(dirHandle) {
                 if (contentDiv.children.length === 0) {
                     folderDiv.remove();
                 }
-            } 
-            // 🚀 UPGRADED: Dynamic condition evaluation check
+            }
             else if (entry.kind === 'file' && isValidAudioFile(entry.name)) {
-                
                 const fileObj = await entry.getFile();
                 const fullUniqueKey = `${entry.name}-${fileObj.size}`;
                 
-                // Clean extension suffixes labels presentation smoothly
                 const cleanTitle = entry.name.replace(/\.(flac|mp3|wav|m4a|ogg)$/i, '');
                 const fileExt = entry.name.split('.').pop().toUpperCase();
 
@@ -429,8 +519,9 @@ async function loadLibrary(dirHandle) {
                     <button class="btn-add-queue" data-filename="${fullUniqueKey}">+ Queue</button>
                 `;
                 
-                li.addEventListener('click', (e) => {
+                li.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    
                     if (e.target.classList.contains('btn-add-queue')) {
                         addToQueue(fullUniqueKey);
                         return;
@@ -440,16 +531,25 @@ async function loadLibrary(dirHandle) {
                     if (parentFolder) {
                         const siblingTracks = Array.from(parentFolder.querySelectorAll(':scope > .track-item'));
                         const clickedIndex = siblingTracks.indexOf(li);
+                        
                         playbackQueue = [];
+                        masterQueueBackup = []; 
 
                         for (let i = clickedIndex + 1; i < siblingTracks.length; i++) {
                             const siblingButton = siblingTracks[i].querySelector('.btn-add-queue');
                             if (siblingButton) {
-                                playbackQueue.push(siblingButton.getAttribute('data-filename'));
+                                const siblingKey = siblingButton.getAttribute('data-filename');
+                                playbackQueue.push(siblingKey);
+                                masterQueueBackup.push(siblingKey); 
                             }
+                        }
+
+                        if (isShuffleActive) {
+                            shuffleArray(playbackQueue);
                         }
                         renderQueueUI();
                     }
+
                     playTrack(fullUniqueKey);
                 });
                 
@@ -459,23 +559,20 @@ async function loadLibrary(dirHandle) {
     }
 
     await buildDOM(dirHandle, trackList);
-
     loadingText.textContent = "";
     if (fileMap.size === 0) {
         trackList.innerHTML = `<li class="empty-state">No matching audio files found (${allowAllFormats ? 'MP3/WAV/M4A/FLAC' : 'FLAC Only'}).</li>`;
     }
 }
 
-// 🚀 RE-INDEX ON TOGGLE INTERACTION
 formatScopeToggle.addEventListener('change', () => {
     if (savedFolderHandle) {
         loadLibrary(savedFolderHandle);
     }
 });
 
-// 5. Upgraded On-Demand Track Player: Parses metadata safely at the moment of user click
+// 5. Upgraded On-Demand Track Player
 async function playTrack(filename) {
-    // 🚀 QUEUE HISTORY CAPTURE: If a track is already playing, push it to history before changing
     if (currentTrackKey && currentTrackKey !== filename) {
         playbackHistory.push(currentTrackKey);
     }
@@ -484,7 +581,6 @@ async function playTrack(filename) {
     if (!trackData) return;
 
     try {
-        // Initialize Web Audio graph if this is the first interaction
         if (!audioCtx) {
             initWebAudio();
         }
@@ -494,16 +590,17 @@ async function playTrack(filename) {
         albumArt.style.display = "none";
         artPlaceholder.style.display = "flex";
 
-        // Fetch the individual file stream right now inside the user action scope
-        const file = await trackData.handle.getFile();
+        let file;
+        if (trackData.isFallbackFile) {
+            file = trackData.filePayload; 
+        } else {
+            file = await trackData.handle.getFile(); 
+        }
         
-        // Dynamically import the metadata manager on-demand
         const mm = await import('https://cdn.jsdelivr.net/npm/music-metadata@11.12.3/+esm');
         
         try {
             const metadata = await mm.parseBlob(file);
-            
-            // Extract track configurations safely
             if (metadata.common.title) trackData.title = metadata.common.title;
             if (metadata.common.artist) {
                 trackData.artist = metadata.common.artist;
@@ -511,7 +608,6 @@ async function playTrack(filename) {
                 trackData.artist = metadata.common.albumartist;
             }
 
-            // Extract and build the Album Cover Art layout
             if (metadata.common.picture && metadata.common.picture.length > 0) {
                 const pic = metadata.common.picture[0];
                 const blob = new Blob([pic.data], { type: pic.format });
@@ -520,7 +616,6 @@ async function playTrack(filename) {
                 artPlaceholder.style.display = "none";
             }
 
-            // Dynamically update the specific sidebar list item text so it saves your library details
             const elementId = makeSafeId(filename);
             const trackLi = document.getElementById(elementId);
             if (trackLi) {
@@ -532,20 +627,16 @@ async function playTrack(filename) {
             console.warn("Metadata tags could not be read for this file.", metaErr);
         }
 
-        // Display current values on the player deck dashboard
         nowPlayingText.textContent = trackData.title;
         nowArtistText.textContent = trackData.artist;
 
-        // Load synced lyrics if your lyric search framework is active
         if (typeof fetchLyrics === 'function') {
             fetchLyrics(trackData.title, trackData.artist);
         }
 
-        // Convert the fresh file handle into a local safe URL stream block and start playback
         const fileURL = URL.createObjectURL(file);
         audioPlayer.src = fileURL;
         audioPlayer.play();
-        // Update the custom button icon to show pause symbol when playing
         btnPlayToggle.textContent = "⏸";
 
     } catch (err) {
@@ -555,16 +646,14 @@ async function playTrack(filename) {
     }
 }
 
-// Clean text data for API queries
 function cleanMetadata(text) {
     if (!text) return "";
     return text.replace(/^\d+[\s.-]*/, '').replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').replace(/(ft\.|feat\.).*$/i, '').trim();
 }
 
-// Fetch and route lyrics parsing
 async function fetchLyrics(rawTitle, rawArtist) {
     lyricsContainer.innerHTML = '<p class="lyric-line active">Loading synced lyrics...</p>';
-    parsedLyrics = []; // Reset global lyric array
+    parsedLyrics = []; 
     lastActiveIndex = -1;
     
     try {
@@ -577,12 +666,9 @@ async function fetchLyrics(rawTitle, rawArtist) {
 
         if (data && data.length > 0) {
             const bestMatch = data[0];
-            
-            // Check if synced timestamp lyrics exist first!
             if (bestMatch.syncedLyrics) {
                 parseAndRenderLRC(bestMatch.syncedLyrics);
             } else if (bestMatch.plainLyrics) {
-                // Fallback to old plain lyrics if timestamps don't exist
                 setStaticLyrics(bestMatch.plainLyrics);
             } else {
                 setStaticLyrics("Instrumental or lyrics unavailable.");
@@ -595,9 +681,8 @@ async function fetchLyrics(rawTitle, rawArtist) {
     }
 }
 
-// Utility to set un-synced text
 function setStaticLyrics(text) {
-    parsedLyrics = []; // Clear array so time tracking stops
+    parsedLyrics = []; 
     lyricsContainer.innerHTML = '';
     const p = document.createElement('p');
     p.className = 'lyric-line active';
@@ -606,7 +691,6 @@ function setStaticLyrics(text) {
     lyricsContainer.appendChild(p);
 }
 
-// Parse LRC strings [00:12.34] text -> JavaScript Objects
 function parseAndRenderLRC(lrcText) {
     lyricsContainer.innerHTML = '';
     const lines = lrcText.split('\n');
@@ -619,29 +703,30 @@ function parseAndRenderLRC(lrcText) {
             const seconds = parseFloat(match[2]);
             const totalSeconds = (minutes * 60) + seconds;
             const text = line.replace(timeRegex, '').trim();
-
             parsedLyrics.push({ time: totalSeconds, text: text || "🎵" });
         }
     });
 
-    // Generate elements inside the HTML DOM
     parsedLyrics.forEach((line, index) => {
         const p = document.createElement('p');
         p.className = 'lyric-line';
         p.textContent = line.text;
-        p.id = `line-${index}`; // ID for scrolling reference
+        p.id = `line-${index}`; 
         lyricsContainer.appendChild(p);
     });
 }
 
-// 🌟 BULLETPROOF TIME TRACKING: Guarantees highlighting and isolated scrolling
+// Global Timeline & Synced Scroll Sync
 audioPlayer.addEventListener('timeupdate', () => {
+    if (!audioPlayer.duration) return;
+    timelineSlider.value = Math.floor(audioPlayer.currentTime);
+    timeCurrent.textContent = formatTime(audioPlayer.currentTime);
+
     if (parsedLyrics.length === 0) return; 
 
     const currentTime = audioPlayer.currentTime;
     let activeIndex = -1;
 
-    // Find the current playing line
     for (let i = 0; i < parsedLyrics.length; i++) {
         if (currentTime >= parsedLyrics[i].time) {
             activeIndex = i;
@@ -650,33 +735,21 @@ audioPlayer.addEventListener('timeupdate', () => {
         }
     }
 
-    // Only trigger when the line actually changes
     if (activeIndex !== -1 && activeIndex !== lastActiveIndex) {
         lastActiveIndex = activeIndex; 
 
-        // 1. Remove the active class from all lines first
         const allLines = lyricsContainer.querySelectorAll('.lyric-line');
         allLines.forEach(line => line.classList.remove('active'));
 
-        // 2. Get the specific line element
         const activeLineElement = document.getElementById(`line-${activeIndex}`);
-        
         if (activeLineElement) {
-            // 3. FORCE HIGHLIGHT (This happens first no matter what)
             activeLineElement.classList.add('active');
             
-            // 4. FAILSAFE SCROLLING: Uses absolute viewport bounding boxes 
-            // (Completely immune to CSS 'position: relative' bugs)
             const containerRect = lyricsContainer.getBoundingClientRect();
             const lineRect = activeLineElement.getBoundingClientRect();
-
-            // Find where the line is relative to the inside of the dark box
             const relativeLineTop = lineRect.top - containerRect.top;
-            
-            // Math to find the perfect center point
             const targetScrollTop = lyricsContainer.scrollTop + relativeLineTop - (containerRect.height / 2) + (lineRect.height / 2);
 
-            // Scroll the container
             lyricsContainer.scrollTo({
                 top: targetScrollTop,
                 behavior: 'smooth'
@@ -685,31 +758,21 @@ audioPlayer.addEventListener('timeupdate', () => {
     }
 });
 
-// 🚀 COLLAPSIBLE MODULE DRAWER HANDLER
 rackTrigger.addEventListener('click', (e) => {
-    // Prevent collapsing if the user is explicitly trying to click the Reset button
     if (e.target.id === 'btn-reset') return;
-
-    // Toggle the class name to let CSS slide it open or closed safely
     controlRack.classList.toggle('collapsed');
 });
 
 // 🚀 UPGRADED GLOBAL KEYBOARD SHORTCUTS CONTROLLER
 window.addEventListener('keydown', (e) => {
-    // If the audio player doesn't have a file loaded yet, ignore key presses
     if (!audioPlayer.src) return;
 
-    // Convert key name to lowercase to handle caps-lock smoothly
     const key = e.key.toLowerCase();
-    
-    // Check if Ctrl (Windows/Linux) or Cmd (Mac) is being held down
     const isModifierActive = e.ctrlKey || e.metaKey;
 
     switch (key) {
-        // 1. PLAY / PAUSE (Spacebar or K)
         case ' ':
         case 'k':
-            // Don't intercept spacebar if modifier is held (lets standard OS shortcuts work)
             if (isModifierActive) return; 
             e.preventDefault(); 
             if (audioPlayer.paused) {
@@ -719,52 +782,45 @@ window.addEventListener('keydown', (e) => {
             }
             break;
 
-        // 2. SKIP FORWARD (Ctrl+Right Arrow for Next Track OR L/Right Arrow for 10s Seek)
         case 'arrowright':
         case 'l':
             e.preventDefault();
             if (isModifierActive || key === 'l') {
-                // ⏭️ Ctrl + Right Arrow or L triggers full Next Track Skip
-                if (typeof skipToNext === 'function') skipToNext();
+                forceSkipNext();
             } else {
-                // Standard Right Arrow seeks forward 10 seconds
                 audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
             }
             break;
 
-        // 3. SKIP BACKWARD (Ctrl+Left Arrow for Previous Track OR J/Left Arrow for 10s Seek)
         case 'arrowleft':
         case 'j':
             e.preventDefault();
             if (isModifierActive || key === 'j') {
-                // ⏮️ Ctrl + Left Arrow or J triggers full Previous Track Skip
-                // Mimic the physical button click event to run our precise 3-second history logic
                 if (btnPrev) btnPrev.click();
             } else {
-                // Standard Left Arrow seeks backward 10 seconds
                 audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
             }
             break;
 
-        // 4. VOLUME UP 5% (Up Arrow)
         case 'arrowup':
-            if (isModifierActive) return; // Prevent conflicting with system window shortcuts
+            if (isModifierActive) return; 
             e.preventDefault();
             audioPlayer.volume = Math.min(1, audioPlayer.volume + 0.05);
+            triggerVolumeHUD();
             break;
 
-        // 5. VOLUME DOWN 5% (Down Arrow)
         case 'arrowdown':
             if (isModifierActive) return;
             e.preventDefault();
             audioPlayer.volume = Math.max(0, audioPlayer.volume - 0.05);
+            triggerVolumeHUD();
             break;
 
-        // 6. MUTE / UNMUTE TOGGLE (M)
         case 'm':
             if (isModifierActive) return;
             e.preventDefault();
             audioPlayer.muted = !audioPlayer.muted;
+            triggerVolumeHUD();
             break;
 
         default:
@@ -773,26 +829,19 @@ window.addEventListener('keydown', (e) => {
 });
 
 // 🚀 CORE QUEUE MANAGER FUNCTIONS
-
-// Add track filename handle into queue matrix arrays
 function addToQueue(filename) {
     const trackData = fileMap.get(filename);
     if (!trackData) return;
-
-    // Push into runtime state data array
     playbackQueue.push(filename);
     renderQueueUI();
 }
 
-// Render queue list entries visually in the dashboard tray panel
 function renderQueueUI() {
     queueList.innerHTML = '';
-
     if (playbackQueue.length === 0) {
         queueContainer.style.display = "none";
         return;
     }
-
     queueContainer.style.display = "block";
 
     playbackQueue.forEach((filename, index) => {
@@ -809,39 +858,23 @@ function renderQueueUI() {
             <button class="btn-remove-queue" data-index="${index}">✕</button>
         `;
 
-        // Handle pulling a single track out of queue order positioning manually
         li.querySelector('.btn-remove-queue').addEventListener('click', (e) => {
             e.stopPropagation();
             playbackQueue.splice(index, 1);
             renderQueueUI();
         });
-
         queueList.appendChild(li);
     });
 }
 
-// Clear out everything inside queue arrays
 btnClearQueue.addEventListener('click', () => {
     playbackQueue = [];
     renderQueueUI();
 });
 
-// 🚀 CONTINUOUS PLAYBACK PIPELINE: Checks queue immediately when active track finishes
-audioPlayer.addEventListener('ended', () => {
-    if (playbackQueue.length > 0) {
-        // Shift pulls the top song index out of the queue and plays it immediately
-        const nextTrackFilename = playbackQueue.shift();
-        renderQueueUI(); // Repaint tray layout map values
-        playTrack(nextTrackFilename);
-    }
-});
-
 // 🚀 CUSTOM TRACK CONTROLLER DRAWER LOGIC
-
-// 1. Play / Pause Central UI Switch Trigger
 btnPlayToggle.addEventListener('click', () => {
     if (!audioPlayer.src) return;
-
     if (audioPlayer.paused) {
         audioPlayer.play();
         btnPlayToggle.textContent = "⏸";
@@ -851,57 +884,9 @@ btnPlayToggle.addEventListener('click', () => {
     }
 });
 
-// Update play button state if paused outside custom controls (like via keyboard shortucts)
 audioPlayer.addEventListener('play', () => btnPlayToggle.textContent = "⏸");
 audioPlayer.addEventListener('pause', () => btnPlayToggle.textContent = "▶");
 
-// 2. SKIP NEXT TRACK FUNCTION (⏭️)
-function skipToNext() {
-    if (playbackQueue.length > 0) {
-        const nextTrackFilename = playbackQueue.shift();
-        renderQueueUI(); // Repaint queue layout panel
-        playTrack(nextTrackFilename);
-    } else {
-        console.log("End of queue reached.");
-        // Optional: Implement auto-advance to next item in file tree if queue is empty
-    }
-}
-btnNext.addEventListener('click', skipToNext);
-
-// Bind our auto-advance listener to use the upgraded skipToNext handler
-audioPlayer.removeEventListener('ended', () => {}); // Clear old reference block
-audioPlayer.addEventListener('ended', skipToNext);
-
-// 3. SKIP PREVIOUS TRACK FUNCTION (⏮️)
-btnPrev.addEventListener('click', () => {
-    if (!audioPlayer.src) return;
-
-    // Failsafe condition: If song has played for more than 3 seconds, restart it
-    if (audioPlayer.currentTime > 3) {
-        audioPlayer.currentTime = 0;
-        return;
-    }
-
-    // Otherwise, pop the last song out of history and play it
-    if (playbackHistory.length > 0) {
-        const previousTrackFilename = playbackHistory.pop();
-        
-        // Put current track back to the top of queue line to allow stepping forward again
-        if (currentTrackKey) {
-            playbackQueue.unshift(currentTrackKey);
-            renderQueueUI();
-        }
-        
-        // Prevent adding current track to history during this transition cycle
-        currentTrackKey = null; 
-        playTrack(previousTrackFilename);
-    } else {
-        // No history exists, just loop back to start of song
-        audioPlayer.currentTime = 0;
-    }
-});
-
-// 4. TIMELINE BAR CONTROLLER & TIME STAMP SYNCHRONIZER
 function formatTime(secs) {
     if (isNaN(secs)) return "0:00";
     const minutes = Math.floor(secs / 60);
@@ -909,20 +894,177 @@ function formatTime(secs) {
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
-// Update track max duration lengths once loaded
 audioPlayer.addEventListener('durationchange', () => {
     timelineSlider.max = Math.floor(audioPlayer.duration);
     timeDuration.textContent = formatTime(audioPlayer.duration);
 });
 
-// Update slider thumb placement dynamically as audio proceeds
-audioPlayer.addEventListener('timeupdate', () => {
-    if (!audioPlayer.duration) return;
-    timelineSlider.value = Math.floor(audioPlayer.currentTime);
-    timeCurrent.textContent = formatTime(audioPlayer.currentTime);
-});
-
-// Let user drag timeline slider handle to seek smoothly mid-song
 timelineSlider.addEventListener('input', () => {
     audioPlayer.currentTime = timelineSlider.value;
 });
+
+function triggerVolumeHUD() {
+    const currentVol = audioPlayer.muted ? 0 : audioPlayer.volume;
+    const volPercent = Math.round(currentVol * 100);
+
+    hudPercentage.textContent = `${volPercent}%`;
+    hudFill.style.width = `${volPercent}%`;
+
+    if (audioPlayer.muted || volPercent === 0) {
+        hudIcon.textContent = "🔇";
+        hudFill.style.width = "0%";
+        hudPercentage.textContent = "Mute";
+    } else if (volPercent < 35) {
+        hudIcon.textContent = "🔈";
+    } else if (volPercent < 75) {
+        hudIcon.textContent = "🔉";
+    } else {
+        hudIcon.textContent = "🔊";
+    }
+
+    volumeHUD.classList.add('visible');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => {
+        volumeHUD.classList.remove('visible');
+    }, 1500);
+}
+
+// 🚀 PLAYBACK REPEAT & SHUFFLE SYSTEM MODES
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[array[j]]] = [array[array[j]], array[i]];
+    }
+}
+
+btnShuffle.addEventListener('click', () => {
+    isShuffleActive = !isShuffleActive;
+    if (isShuffleActive) {
+        btnShuffle.classList.add('active-cyan');
+        btnShuffle.title = "Shuffle Mode: ACTIVE (Click to restore sequential list order)";
+        if (playbackQueue.length > 0) {
+            shuffleArray(playbackQueue);
+            renderQueueUI();
+        }
+    } else {
+        btnShuffle.classList.remove('active-cyan');
+        btnShuffle.title = "Shuffle Mode: OFF (Click to randomize queue)";
+        if (masterQueueBackup.length > 0) {
+            playbackQueue = masterQueueBackup.filter(trackKey => playbackQueue.includes(trackKey));
+            renderQueueUI();
+        }
+    }
+});
+
+btnRepeatMode.addEventListener('click', () => {
+    switch (repeatMode) {
+        case 'linear':
+            repeatMode = 'one';
+            btnRepeatMode.textContent = "🔂";
+            btnRepeatMode.classList.add('active-cyan');
+            btnRepeatMode.title = "Repeat Mode: Repeat One (Click to loop the entire queue)";
+            break;
+        case 'one':
+            repeatMode = 'all';
+            btnRepeatMode.textContent = "🔁";
+            btnRepeatMode.classList.remove('active-cyan');
+            btnRepeatMode.classList.add('active-purple');
+            btnRepeatMode.title = "Repeat Mode: Repeat Queue (Click to return to linear progression)";
+            break;
+        case 'all':
+            repeatMode = 'linear';
+            btnRepeatMode.textContent = "➡️";
+            btnRepeatMode.classList.remove('active-purple');
+            btnRepeatMode.title = "Repeat Mode: Linear (Click to loop single track)";
+            break;
+    }
+});
+
+// 🚀 CLOSED AUTOMATIC AUDIO TRACK-ENDING DISPATCHER
+function handleAudioEnded() {
+    // 1. Loop One Song has absolute priority on automatic end
+    if (repeatMode === 'one' && currentTrackKey) {
+        audioPlayer.currentTime = 0;
+        audioPlayer.play().catch(err => console.log("Playback loop interrupted:", err));
+        return;
+    }
+
+    // 2. Advance to next queued song item
+    if (playbackQueue.length > 0) {
+        const nextTrackFilename = playbackQueue.shift();
+        if (repeatMode === 'all' && currentTrackKey) {
+            playbackQueue.push(currentTrackKey);
+        }
+        renderQueueUI();
+        playTrack(nextTrackFilename);
+    } 
+    // 3. Queue playlist wrap-around loop back
+    else if (repeatMode === 'all' && currentTrackKey) {
+        if (playbackHistory.length > 0) {
+            const rebuildQueue = [...playbackHistory, currentTrackKey];
+            playbackHistory = [];
+            if (isShuffleActive) shuffleArray(rebuildQueue);
+            
+            const restartTrack = rebuildQueue.shift();
+            playbackQueue = rebuildQueue;
+            renderQueueUI();
+            playTrack(restartTrack);
+        } else {
+            audioPlayer.currentTime = 0;
+            audioPlayer.play().catch(err => console.log("Playback loop interrupted:", err));
+        }
+    } else {
+        console.log("Terminal track playlist completed.");
+        btnPlayToggle.textContent = "▶"; 
+    }
+}
+
+// 🚀 HARDWARE MANUAL SKIP FORWARD LINK BUTTON CLICK
+function forceSkipNext() {
+    if (playbackQueue.length > 0) {
+        const nextTrackFilename = playbackQueue.shift();
+        if (repeatMode === 'all' && currentTrackKey) {
+            playbackQueue.push(currentTrackKey);
+        }
+        renderQueueUI();
+        playTrack(nextTrackFilename);
+    } else if (repeatMode === 'all' && playbackHistory.length > 0) {
+        const rebuildQueue = [...playbackHistory, currentTrackKey];
+        playbackHistory = [];
+        if (isShuffleActive) shuffleArray(rebuildQueue);
+        
+        const restartTrack = rebuildQueue.shift();
+        playbackQueue = rebuildQueue;
+        renderQueueUI();
+        playTrack(restartTrack);
+    } else {
+        console.log("No more tracks in queue to skip forward to.");
+        btnPlayToggle.textContent = "▶";
+    }
+}
+
+// HARDWARE SKIP BACKWARD LINK BUTTON CLICK
+btnPrev.addEventListener('click', () => {
+    if (!audioPlayer.src) return;
+
+    if (audioPlayer.currentTime > 3) {
+        audioPlayer.currentTime = 0;
+        return;
+    }
+
+    if (playbackHistory.length > 0) {
+        const previousTrackFilename = playbackHistory.pop();
+        if (currentTrackKey) {
+            playbackQueue.unshift(currentTrackKey);
+            renderQueueUI();
+        }
+        currentTrackKey = null; 
+        playTrack(previousTrackFilename);
+    } else {
+        audioPlayer.currentTime = 0;
+    }
+});
+
+// Clear old event layouts out and map clean runtime instances
+btnNext.onclick = forceSkipNext;
+audioPlayer.onended = handleAudioEnded;

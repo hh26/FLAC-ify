@@ -31,6 +31,14 @@
         </header>
 
         <main>
+            <!-- Hardware-Style Volume Visual HUD Overlay -->
+            <div id="volume-hud" class="volume-hud">
+                <span class="hud-icon">🔊</span>
+                <div class="hud-track">
+                    <div id="hud-fill" class="hud-fill"></div>
+                </div>
+                <span id="hud-percentage" class="hud-value">100%</span>
+            </div>
             <div class="player-section">
                 <!-- Visualizer Canvas Screen -->
                 <canvas id="visualizer" width="600" height="150"></canvas>
@@ -51,9 +59,11 @@
                     
                     <!-- Custom Hardware-Grade Control Buttons Bar -->
                     <div class="deck-controls">
+                        <button id="btn-shuffle" class="deck-btn mode-btn" title="Shuffle Mode: OFF (Click to randomize queue)">🔀</button>
                         <button id="btn-prev" class="deck-btn" title="Previous Track (Ctrl + Left Arrow)">⏮</button>
                         <button id="btn-play-toggle" class="deck-btn play-major" title="Play / Pause (Spacebar or K)">▶</button>
                         <button id="btn-next" class="deck-btn" title="Next Track (Ctrl + Right Arrow)">⏭</button>
+                        <button id="btn-repeat-mode" class="deck-btn mode-btn" title="Repeat Mode: Linear (Click to loop single track)">➡️</button>
                     </div>
 
                     <!-- Sleek Progress Tracking Bar Link -->
