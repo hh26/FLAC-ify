@@ -76,18 +76,55 @@ function makeSafeId(str) {
     return 'track-' + encodeURIComponent(str).replace(/%/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
 }
 
-// 1. Initialize App & Register Service Worker (PWA)
+// 1. Upgraded Service Worker Update Controller
 window.addEventListener('load', async () => {
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js');
+        try {
+            const registration = await navigator.serviceWorker.register('/sw.js');
+
+            // Check for updates automatically on launch
+            registration.update();
+
+            // Listen for changes to find out if an updated service worker is waiting
+            registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                
+                newWorker.addEventListener('statechange', () => {
+                    // If the new worker has completed installation and is ready to swap
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                        console.log("New application update discovered! Refreshing files...");
+                        
+                        // Option A: Auto-reload the page instantly for a seamless update
+                        window.location.reload();
+                        
+                        // Option B (Alternative): If you prefer not to disrupt playback, 
+                        // you can show a subtle custom toast notification instead:
+                        // showUpdateToast();
+                    }
+                });
+            });
+
+        } catch (err) {
+            console.error("Service Worker registration breakdown:", err);
+        }
     }
     
+    // Maintain your existing IndexedDB library folder sync logic below:
     const savedHandle = await idbKeyval.get('music-folder');
     if (savedHandle) {
         savedFolderHandle = savedHandle;
         btnOpen.textContent = "Unlock Saved Library"; 
         linkClearFolder.style.display = "inline-block"; 
         trackList.innerHTML = '<li class="empty-state">Saved library detected. Click "Unlock Saved Library" above to sync your device files.</li>';
+    }
+});
+
+// Failsafe listener: Handles swapping out tabs smoothly when controllers claim dominion
+let refreshing = false;
+navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
     }
 });
 
